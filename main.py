@@ -30,7 +30,7 @@ def scrape_google_maps(cidade: str, segmento: str):
         # Captura a lista de resultados
         resultados = driver.find_elements(By.CLASS_NAME, "Nv2PK")
 
-        for resultado in resultados[:10]:  # Limita a 10 estabelecimentos para evitar bloqueio
+        for resultado in resultados:  # Limita a 10 estabelecimentos para evitar bloqueio
             try:
                 nome = resultado.find_element(By.CLASS_NAME, "qBF1Pd").text
             except:
