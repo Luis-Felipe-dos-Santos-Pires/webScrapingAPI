@@ -1,11 +1,6 @@
 from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse,StreamingResponse
 import pandas as pd
-import os
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-import time
 from io import BytesIO
 from dataclasses import dataclass
 from credentials import APIKey
