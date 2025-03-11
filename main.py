@@ -1,75 +1,88 @@
 from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse,StreamingResponse
 import pandas as pd
 import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 import time
+from io import BytesIO
+from dataclasses import dataclass
+from credentials import APIKey
+import requests
+
+url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 
 app = FastAPI()
 
-# Função para fazer Web Scraping no Google Maps
 def scrape_google_maps(cidade: str, segmento: str):
-    # Configuração do Selenium
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless")  # Executa sem abrir o navegador
-    options.add_argument("--disable-gpu")
-    driver = webdriver.Chrome(options=options)
-
-    # Monta a URL de busca no Google Maps
-    busca = f"{segmento} em {cidade}"
-    url = f"https://www.google.com/maps/search/{busca.replace(' ', '+')}"
-    
-    driver.get(url)
-    time.sleep(5)  # Aguarda a página carregar
-
+    params = {
+        "query": f"{cidade} {segmento}",
+        "key": APIKey
+    }
+    response = requests.get(url, params=params)
+    data = response.json()
     estabelecimentos = []
-
-    try:
-        # Captura a lista de resultados
-        resultados = driver.find_elements(By.CLASS_NAME, "Nv2PK")
-
-        for resultado in resultados:  # Limita a 10 estabelecimentos para evitar bloqueio
-            try:
-                nome = resultado.find_element(By.CLASS_NAME, "qBF1Pd").text
-            except:
-                nome = "Nome não encontrado"
-
-            try:
-                endereco = resultado.find_element(By.CLASS_NAME, "W4Efsd").text
-            except:
-                endereco = "Endereço não encontrado"
-
-            try:
-                telefone = resultado.find_element(By.CLASS_NAME, "UsdlK").text
-            except:
-                telefone = "Telefone não encontrado"
-
-            estabelecimentos.append({"Nome": nome, "Endereço": endereco, "Telefone": telefone})
-
-    except Exception as e:
-        print(f"Erro ao buscar os dados: {e}")
-
-    driver.quit()
+    for result in data["results"]:
+        estabelecimentos.append(
+            {
+                "Nome": result["name"], 
+                "Endereço": result["formatted_address"], 
+                "Telefone": "Sem telefone nesta API" ## Pendente de implementação
+            }
+        )
     return estabelecimentos
 
-# Função para gerar o arquivo Excel
+@dataclass
+class Sheet:
+    headers: object
+    content: bytes
+
 def gerar_excel(dados, cidade, segmento):
     df = pd.DataFrame(dados)
-    filename = f"{segmento}_{cidade}.xlsx"
-    df.to_excel(filename, index=False, engine="openpyxl")
-    return filename
+    content = BytesIO()
+    with pd.ExcelWriter(content, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Dados")
+    content.seek(0)
+    headers = {
+        "Content-Disposition": f"attachment;{segmento}_{cidade}.xlsx"
+    }
+    return Sheet(
+        headers = headers,
+        content = content
+    )
 
-# Endpoint da API para gerar e retornar o Excel
 @app.get("/scrape")
 def get_excel(cidade: str = Query(..., title="Cidade"), segmento: str = Query(..., title="Segmento")):
     dados = scrape_google_maps(cidade, segmento)
-
     if not dados:
         return {"erro": "Nenhum dado encontrado"}
+    sheet = gerar_excel(dados, cidade, segmento)
+    return StreamingResponse(sheet.content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=sheet.headers)
 
-    filename = gerar_excel(dados, cidade, segmento)
+# Recuperar telefones para implementar
+"""
+import concurrent.futures
 
-    return FileResponse(filename, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=filename)
+def get_phone_number(place_id):
+    place_details_url = "https://maps.googleapis.com/maps/api/place/details/json"
+    place_details_params = {
+        "place_id": place_id,
+        "key": API_KEY,
+        "fields": "formatted_phone_number"
+    }
+    response = requests.get(place_details_url, params=place_details_params)
+    data = response.json()
+    return data["result"].get("formatted_phone_number", "N/A")
 
+# List of place_ids from the Text Search
+place_ids = [result["place_id"] for result in text_search_data["results"]]
+
+# Use ThreadPoolExecutor for parallel requests
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    phone_numbers = list(executor.map(get_phone_number, place_ids))
+
+# Print results
+for result, phone_number in zip(text_search_data["results"], phone_numbers):
+    print(f"Name: {result['name']}, Address: {result['formatted_address']}, Phone: {phone_number}")
+"""
